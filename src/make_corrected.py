@@ -305,7 +305,6 @@ MAP = {
     "四超过": "超过",
     # —— 软件仓库管理(2) BV1Q6en6NEUo 术语 ——
     "一号点N": "ehall.nju.edu.cn",
-    "一号": "ehall",
     "get it": "git",
     "Get it": "git",
     "比gate要好": "比 git 要好",
@@ -313,7 +312,6 @@ MAP = {
     "JUSS": "jj",
     "GG子": "jj",
     "GGT": "jj",
-    "句句词": "jj",
     "t max": "tmux",
     "T max": "tmux",
     "体Mark": "tmux",
@@ -348,7 +346,6 @@ MAP = {
     "persd": "per second",
     "PARAA": "paradigm",
     "PARADIM": "paradigm",
-    "contributing点MD": "CONTRIBUTING.md",
     "read me": "README",
     "点get": ".git",
     "点text": ".tex",
