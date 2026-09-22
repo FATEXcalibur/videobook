@@ -334,7 +334,6 @@ MAP = {
     "SISTANT点dB": "assistant.db",
     "adversary lock": "advisory lock",
     "OLBOT": "abort",
-    "skin log": "指数级",
     "STATCH": "stash",
     "STH": "stash",
     "A证": "agent",
