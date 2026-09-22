@@ -122,6 +122,32 @@ def replace_screenshots_with_embeds(md_content: str, video_url: str, images_dir:
     return re.sub(pattern, replacer, md_content)
 
 
+def escape_html(s: str) -> str:
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def build_toc(body_html: str):
+    """为 h2/h3 分配稳定 id 并生成右侧目录。返回 (body_html, toc_html)。"""
+    headings = []
+
+    def repl(match):
+        level = int(match.group(1))
+        inner = match.group(2)
+        text = re.sub(r"<[^>]+>", "", inner).strip()
+        anchor = f"sec-{len(headings)}"
+        headings.append((level, text, anchor))
+        return f'<h{level} id="{anchor}">{inner}</h{level}>'
+
+    body_html = re.sub(r'<h([23])\b[^>]*>(.*?)</h\1>', repl, body_html, flags=re.DOTALL)
+
+    items = []
+    for level, text, anchor in headings:
+        cls = "toc-h2" if level == 2 else "toc-h3"
+        items.append(f'<li class="toc-item {cls}"><a href="#{anchor}">{escape_html(text)}</a></li>')
+    toc_html = ('<ul class="toc-list">' + "".join(items) + "</ul>") if items else '<p class="toc-empty">（无章节）</p>'
+    return body_html, toc_html
+
+
 def md_to_html(md_content: str, title: str) -> str:
     """将 Markdown 内容转为完整的 HTML 页面"""
     # 先将 markdown 转为 HTML 片段
@@ -133,7 +159,12 @@ def md_to_html(md_content: str, title: str) -> str:
         }
     )
 
-    return HTML_TEMPLATE.replace("{title}", title).replace("{content}", body_html)
+    body_html, toc_html = build_toc(body_html)
+
+    return (HTML_TEMPLATE
+            .replace("{title}", title)
+            .replace("{content}", body_html)
+            .replace("{toc}", toc_html))
 
 
 # ─────────────────────────────────────────────
@@ -234,12 +265,74 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             -webkit-font-smoothing: antialiased;
         }
 
+        /* ── 布局：正文 + 右侧目录 ── */
+        .layout {
+            display: flex;
+            gap: 40px;
+            align-items: flex-start;
+            justify-content: center;
+            max-width: 1160px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
         /* ── 文章容器 ── */
         .book-content {
+            flex: 0 1 780px;
+            min-width: 0;
             max-width: 780px;
             margin: 0 auto;
-            padding: 60px 32px 120px;
+            padding: 60px 0 120px;
         }
+
+        /* ── 右侧目录侧边栏 ── */
+        .toc-sidebar {
+            flex: 0 0 240px;
+            position: sticky;
+            top: 24px;
+            max-height: calc(100vh - 48px);
+            overflow-y: auto;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px 18px;
+            font-size: 0.86em;
+            box-shadow: var(--shadow);
+        }
+
+        .toc-title {
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 12px;
+            letter-spacing: 0.02em;
+        }
+
+        .toc-list { list-style: none; margin: 0; padding: 0; }
+
+        .toc-item { margin: 0; }
+
+        .toc-item a {
+            display: block;
+            padding: 6px 8px;
+            border-radius: 7px;
+            color: var(--text-secondary);
+            border-bottom: none;
+            line-height: 1.5;
+        }
+        .toc-item a:hover {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border-bottom: none;
+        }
+        .toc-item.toc-h2 a { font-weight: 600; color: var(--text-primary); }
+        .toc-item.toc-h3 a { padding-left: 22px; }
+        .toc-item a.active {
+            background: var(--accent-glow);
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .toc-empty { color: var(--text-muted); margin: 0; }
 
         /* ── 标题 ── */
         h1 {
@@ -475,6 +568,11 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
         ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 
         /* ── 响应式 ── */
+        @media (max-width: 1024px) {
+            .toc-sidebar { display: none; }
+            .layout { display: block; padding: 0; }
+            .book-content { padding: 40px 24px 100px; }
+        }
         @media (max-width: 640px) {
             .book-content { padding: 32px 16px 80px; }
             h1 { font-size: 1.7em; }
@@ -483,9 +581,15 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <article class="book-content">
-        {content}
-    </article>
+    <div class="layout">
+        <article class="book-content">
+            {content}
+        </article>
+        <nav class="toc-sidebar" aria-label="章节目录">
+            <div class="toc-title">目录</div>
+            {toc}
+        </nav>
+    </div>
 
     <!-- Mermaid 图表引擎初始化 -->
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
@@ -538,6 +642,28 @@ HTML_TEMPLATE = r'''<!DOCTYPE html>
             });
             lightbox.addEventListener('click', closeLightbox);
             document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeLightbox(); });
+        });
+    </script>
+    <!-- 右侧目录高亮（scrollspy） -->
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const links = Array.from(document.querySelectorAll('.toc-sidebar a'));
+            const map = links.map(function(a) {
+                const sel = a.getAttribute('href');
+                return { el: sel ? document.querySelector(sel) : null, a: a };
+            }).filter(function(x) { return x.el; });
+            if (!map.length) return;
+            function onScroll() {
+                let current = map[0];
+                const top = window.scrollY + 80;
+                map.forEach(function(x) {
+                    if (x.el.offsetTop <= top) current = x;
+                });
+                links.forEach(function(a) { a.classList.remove('active'); });
+                current.a.classList.add('active');
+            }
+            window.addEventListener('scroll', onScroll, { passive: true });
+            onScroll();
         });
     </script>
 </body>

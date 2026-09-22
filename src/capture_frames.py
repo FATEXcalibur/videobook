@@ -50,6 +50,43 @@ from extract_frames import materialize
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_PROFILE_DIR = os.path.join(BASE_DIR, ".capture-profile")
 
+# 允许显式指定 Chrome 可执行文件（例如无 root 权限时本地安装的 Chrome）。
+# 优先级: VIDEOBOOK_CHROME_EXE > CHROME_EXE > 系统自动探测。
+CHROME_EXE = os.environ.get("VIDEOBOOK_CHROME_EXE") or os.environ.get("CHROME_EXE") or None
+
+
+def _host_resolver_args():
+    """生成 --host-resolver-rules 参数（绕过 fake-ip 代理导致的 DNS 问题）。
+
+    依赖 venv 中的 videobook_dns 模块（可选）；不存在时返回空列表，行为不变。
+    """
+    try:
+        from videobook_dns import get_host_resolver_rules
+        rules = get_host_resolver_rules()
+        return [f"--host-resolver-rules={rules}"] if rules else []
+    except Exception:
+        return []
+
+
+# 这些 B 站 CDN 域名在 Clash fake-ip / 分流规则下经常被误路由到海外节点而
+# 连接被重置；需让 Chrome 对这些域名直连（配合上面的 host-resolver-rules 用
+# 真实 IP）。主站/API/视频流（bilibili.com / bilivideo.com）仍走系统代理。
+_PROXY_BYPASS_HOSTS = (
+    "player.bilibili.com;s1.hdslb.com;i0.hdslb.com;"
+    "aisubtitle.hdslb.com;subtitle.bilibili.com"
+)
+
+
+def _proxy_config():
+    """构造 Playwright proxy 配置：继承环境变量里的系统代理，但把 B 站 CDN
+    域名加入 bypass（直连）。无代理环境则返回 None（走系统默认，不干预）。"""
+    server = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+              or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+              or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
+    if not server:
+        return None
+    return {"server": server, "bypass": _PROXY_BYPASS_HOSTS}
+
 # E 层：除 <video> 外全部隐藏（visibility 保留布局，通杀各遮挡层）
 HIDE_CSS = ("body *{visibility:hidden!important}"
             "video, video *{visibility:visible!important}")
@@ -107,6 +144,8 @@ def frames_missing(timestamps, imgdir):
 
 
 def find_chrome_exe():
+    if CHROME_EXE and os.path.exists(CHROME_EXE):
+        return CHROME_EXE
     candidates = []
     if sys.platform == "win32":
         for env in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
@@ -220,8 +259,10 @@ def _shoot(page, sec, name, imgdir, urls):
 def _run_capture(p, shots, imgdir, profile_dir, video_id, platform, headless):
     ctx = p.chromium.launch_persistent_context(
         profile_dir, channel="chrome", headless=headless,
+        executable_path=CHROME_EXE,
         viewport={"width": 1280, "height": 720},
-        args=["--autoplay-policy=no-user-gesture-required"])
+        proxy=_proxy_config(),
+        args=["--autoplay-policy=no-user-gesture-required"] + _host_resolver_args())
     try:
         page = ctx.pages[0] if ctx.pages else ctx.new_page()
         _force_top_quality(page)

@@ -11,6 +11,9 @@ import tempfile
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_PROFILE_DIR = os.path.join(BASE_DIR, ".capture-profile")
 
+# 允许显式指定 Chrome 可执行文件（例如无 root 权限时本地安装的 Chrome）。
+CHROME_EXE = os.environ.get("VIDEOBOOK_CHROME_EXE") or os.environ.get("CHROME_EXE") or None
+
 _HOME = {
     "bilibili": "https://www.bilibili.com",
     "youtube": "https://www.youtube.com",
@@ -31,7 +34,8 @@ def export_cookies(profile_dir=DEFAULT_PROFILE_DIR, out_path=None, platform="bil
 
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(
-            profile_dir, channel="chrome", headless=True)
+            profile_dir, channel="chrome", headless=True,
+            executable_path=CHROME_EXE)
         try:
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
             page.goto(_HOME.get(platform, _HOME["bilibili"]),
